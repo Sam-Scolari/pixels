@@ -6,10 +6,10 @@
  * ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
  * █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█
  * █░░░░░░░░░██████████████░░██████████████░░░█
- * █░░░░░░░░░██░░░░░▒▒▒▒▒██░░██░░░░░▒▒▒▒▒██░░░█
- * █░░░████████░░░░░▒▒▒▒▒██████░░░░░▒▒▒▒▒██░░░█
- * █░░░██░░░░██░░░░░▒▒▒▒▒██░░██░░░░░▒▒▒▒▒██░░░█
- * █░░░██░░░░██░░░░░▒▒▒▒▒██░░██░░░░░▒▒▒▒▒██░░░█
+ * █░░░░░░░░░██▒▒▒▒▒░░░░░██░░██▒▒▒▒▒░░░░░██░░░█
+ * █░░░████████▒▒▒▒▒░░░░░██████▒▒▒▒▒░░░░░██░░░█
+ * █░░░██░░░░██▒▒▒▒▒░░░░░██░░██▒▒▒▒▒░░░░░██░░░█
+ * █░░░██░░░░██▒▒▒▒▒░░░░░██░░██▒▒▒▒▒░░░░░██░░░█
  * █░░░░░░░░░██████████████░░██████████████░░░█
  * █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█
  * ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -21,22 +21,36 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@nouns-contracts/contracts/NounsToken.sol";
+import "./VaultLogic.sol";
+import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
+import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
+import "@openzeppelin/contracts/utils/Create2.sol";
 
-contract Pixel is ERC20, Ownable, IERC721Receiver {
-    NounsToken public nounsToken;
-    address public delegatee;
-
+contract Pixel is ERC20, Ownable {
     uint256 public constant EXCHANGE_RATE = 1_000_000e18;
+
+    NounsToken public nounsToken;
+
+    UpgradeableBeacon immutable beacon;
+    address public vaultLogic;
+
+    address[] public vaults;
+    uint256 public nextVault = 0;
 
     constructor(
         address _nounsToken,
-        address _delegatee
+        address _vaultLogic,
+        uint256 _initialVaults
     ) ERC20("Pixel", "PIXEL") {
         nounsToken = NounsToken(_nounsToken);
-        delegatee = _delegatee;
+        beacon = new UpgradeableBeacon(_vaultLogic);
+        vaultLogic = _vaultLogic;
+
+        if (_initialVaults > 0) {
+            createVaults(_initialVaults);
+        }
     }
 
     event Deposit(address indexed _from, uint256[] _tokenIds, uint256 _minted);
@@ -52,14 +66,15 @@ contract Pixel is ERC20, Ownable, IERC721Receiver {
      * @param _tokenIds An array of tokenIds to be deposited
      */
     function deposit(uint256[] calldata _tokenIds) external {
-        batchTransfer(msg.sender, address(this), _tokenIds);
-
-        /**
-         * @dev NounsToken automatically sets the delegate to
-         *  this contract on deposit, so we need to redelegate
-         *  it to the current delegatee
-         */
-        nounsToken.delegate(delegatee);
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            // if (vaults[_tokenIds[i]] == address(0)) {
+            //     createVault(_tokenIds[i]);
+            // }
+            if (nextVault == vaults.length) {
+                createVaults(_tokenIds.length - i);
+            }
+            nounsToken.transferFrom(msg.sender, address(this), _tokenIds[i]);
+        }
 
         _mint(msg.sender, EXCHANGE_RATE * _tokenIds.length);
 
@@ -92,14 +107,6 @@ contract Pixel is ERC20, Ownable, IERC721Receiver {
         }
 
         batchTransfer(msg.sender, address(this), _fromTokenIds);
-
-        /**
-         * @dev NounsToken automatically sets the delegate to
-         *  this contract on deposit, so we need to redelegate
-         *  it to the current delegatee
-         */
-        nounsToken.delegate(delegatee);
-
         batchTransfer(address(this), msg.sender, _forTokenIds);
 
         emit Swap(msg.sender, _fromTokenIds, _forTokenIds);
@@ -121,34 +128,79 @@ contract Pixel is ERC20, Ownable, IERC721Receiver {
         }
     }
 
+    function createVaults(uint256 _count) internal {
+        if (_count <= 0) {
+            revert("At least one vault must be created");
+        }
+
+        for (uint256 i = 0; i < _count; i++) {
+            BeaconProxy vault = new BeaconProxy(
+                address(beacon),
+                abi.encodeWithSelector(
+                    VaultLogic.initialize.selector,
+                    address(nounsToken)
+                )
+            );
+
+            vaults.push(address(vault));
+        }
+    }
+
+    // /**
+    //  * @notice Creates a new deterministic vault for the given tokenId
+    //  * @param _tokenId The tokenId of the Noun to be stored in the vault
+    //  */
+    // function createVault(uint256 _tokenId) internal returns (address) {
+    //     bytes memory bytecode = abi.encodePacked(
+    //         type(BeaconProxy).creationCode,
+    //         abi.encode(
+    //             address(beacon),
+    //             abi.encodeWithSelector(
+    //                 VaultLogic.initialize.selector,
+    //                 address(nounsToken)
+    //             )
+    //         )
+    //     );
+
+    //     address vault = Create2.deploy(0, bytes32(_tokenId), bytecode);
+
+    //     // OLD - Not deterministic
+    //     // BeaconProxy vault = new BeaconProxy(
+    //     //     address(beacon),
+    //     //     abi.encodeWithSelector(
+    //     //         VaultLogic.initialize.selector,
+    //     //         address(nounsToken)
+    //     //     )
+    //     // );
+
+    //     vaults[_tokenId] = vault;
+
+    //     return vault;
+    // }
+
+    // function getOrDeployVault(uint256 _tokenId) public returns (address) {
+    //     address vault = vaults[_tokenId];
+
+    //     if (vault == address(0)) {
+    //         return createVault(_tokenId);
+    //     }
+
+    //     return vault;
+    // }
+
     /**
-     * @notice Change the delegatee for Nouns stored in the contract
-     * @param _delegatee The address of the new delegatee
+     * @notice Update the vaultLogic to a new implementation
+     * @param _vaultLogic The address of the new vaultLogic implementation
      */
-    function setDelegatee(address _delegatee) external onlyOwner {
-        delegatee = _delegatee;
+    function update(address _vaultLogic) public onlyOwner {
+        beacon.upgradeTo(_vaultLogic);
+        vaultLogic = _vaultLogic;
     }
 
     /**
-     * @notice Handle the receipt of an NFT
-     * @dev The ERC721 smart contract calls this function on the recipient
-     *  after a `transfer`. This function MAY throw to revert and reject the
-     *  transfer. Return of other than the magic value MUST result in the
-     *  transaction being reverted.
-     *  Note: the contract address is always the message sender.
-     * @param _operator The address which called `safeTransferFrom` function
-     * @param _from The address which previously owned the token
-     * @param _tokenId The NFT identifier which is being transferred
-     * @param _data Additional data with no specified format
-     * @return `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`
-     *  unless throwing
+     * @notice Retrieves the current implementation of the vaultLogic
      */
-    function onERC721Received(
-        address _operator,
-        address _from,
-        uint256 _tokenId,
-        bytes calldata _data
-    ) external returns (bytes4) {
-        return IERC721Receiver.onERC721Received.selector;
+    function implementation() public view returns (address) {
+        return beacon.implementation();
     }
 }
