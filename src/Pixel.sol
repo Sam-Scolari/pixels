@@ -67,9 +67,6 @@ contract Pixel is ERC20, Ownable {
      */
     function deposit(uint256[] calldata _tokenIds) external {
         for (uint256 i = 0; i < _tokenIds.length; i++) {
-            // if (vaults[_tokenIds[i]] == address(0)) {
-            //     createVault(_tokenIds[i]);
-            // }
             if (nextVault == vaults.length) {
                 createVaults(_tokenIds.length - i);
             }
@@ -128,6 +125,10 @@ contract Pixel is ERC20, Ownable {
         }
     }
 
+    /**
+     * @notice Create new vault(s) to store Nouns
+     * @param _count The amount of vaults to be created
+     */
     function createVaults(uint256 _count) internal {
         if (_count <= 0) {
             revert("At least one vault must be created");
@@ -145,48 +146,6 @@ contract Pixel is ERC20, Ownable {
             vaults.push(address(vault));
         }
     }
-
-    // /**
-    //  * @notice Creates a new deterministic vault for the given tokenId
-    //  * @param _tokenId The tokenId of the Noun to be stored in the vault
-    //  */
-    // function createVault(uint256 _tokenId) internal returns (address) {
-    //     bytes memory bytecode = abi.encodePacked(
-    //         type(BeaconProxy).creationCode,
-    //         abi.encode(
-    //             address(beacon),
-    //             abi.encodeWithSelector(
-    //                 VaultLogic.initialize.selector,
-    //                 address(nounsToken)
-    //             )
-    //         )
-    //     );
-
-    //     address vault = Create2.deploy(0, bytes32(_tokenId), bytecode);
-
-    //     // OLD - Not deterministic
-    //     // BeaconProxy vault = new BeaconProxy(
-    //     //     address(beacon),
-    //     //     abi.encodeWithSelector(
-    //     //         VaultLogic.initialize.selector,
-    //     //         address(nounsToken)
-    //     //     )
-    //     // );
-
-    //     vaults[_tokenId] = vault;
-
-    //     return vault;
-    // }
-
-    // function getOrDeployVault(uint256 _tokenId) public returns (address) {
-    //     address vault = vaults[_tokenId];
-
-    //     if (vault == address(0)) {
-    //         return createVault(_tokenId);
-    //     }
-
-    //     return vault;
-    // }
 
     /**
      * @notice Update the vaultLogic to a new implementation
