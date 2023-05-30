@@ -26,7 +26,6 @@ import "@nouns-contracts/contracts/NounsToken.sol";
 import "./VaultLogic.sol";
 import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
-import "@openzeppelin/contracts/utils/Create2.sol";
 
 contract Pixel is ERC20, Ownable {
     uint256 public constant EXCHANGE_RATE = 1_000_000e18;
@@ -36,8 +35,8 @@ contract Pixel is ERC20, Ownable {
     UpgradeableBeacon immutable beacon;
     address public vaultLogic;
 
-    address[] public vaults;
-    uint256 public nextVault = 0;
+    mapping(uint256 => address) public nouns;
+    address[] public openVaults;
 
     constructor(
         address _nounsToken,
@@ -66,11 +65,22 @@ contract Pixel is ERC20, Ownable {
      * @param _tokenIds An array of tokenIds to be deposited
      */
     function deposit(uint256[] calldata _tokenIds) external {
+        uint256 _openVaultCount = openVaults.length;
+
+        if (_tokenIds.length > _openVaultCount) {
+            uint256 newVaultCount = _tokenIds.length - _openVaultCount;
+            createVaults(newVaultCount);
+            _openVaultCount += newVaultCount;
+        }
+
         for (uint256 i = 0; i < _tokenIds.length; i++) {
-            if (nextVault == vaults.length) {
-                createVaults(_tokenIds.length - i);
-            }
-            nounsToken.transferFrom(msg.sender, address(this), _tokenIds[i]);
+            address lastVault = openVaults[_openVaultCount - 1 - i];
+
+            nounsToken.transferFrom(msg.sender, lastVault, _tokenIds[i]);
+
+            nouns[_tokenIds[i]] = lastVault;
+
+            openVaults.pop();
         }
 
         _mint(msg.sender, EXCHANGE_RATE * _tokenIds.length);
@@ -85,7 +95,14 @@ contract Pixel is ERC20, Ownable {
     function withdraw(uint256[] calldata _tokenIds) external {
         _burn(msg.sender, EXCHANGE_RATE * _tokenIds.length);
 
-        batchTransfer(address(this), msg.sender, _tokenIds);
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            address vault = nouns[_tokenIds[i]];
+
+            nounsToken.transferFrom(vault, msg.sender, _tokenIds[i]);
+
+            openVaults.push(vault);
+            nouns[_tokenIds[i]] = address(0);
+        }
 
         emit Withdraw(msg.sender, _tokenIds, EXCHANGE_RATE * _tokenIds.length);
     }
@@ -103,26 +120,23 @@ contract Pixel is ERC20, Ownable {
             revert("_fromTokenIds and _forTokenIds must be the same length");
         }
 
-        batchTransfer(msg.sender, address(this), _fromTokenIds);
-        batchTransfer(address(this), msg.sender, _forTokenIds);
+        for (uint256 i = 0; i < _forTokenIds.length; i++) {
+            address vault = nouns[_forTokenIds[i]];
+
+            if (vault == address(0)) {
+                revert(
+                    "The Noun that was requested is not stored in the contract"
+                );
+            }
+
+            nounsToken.transferFrom(vault, msg.sender, _forTokenIds[i]);
+            nouns[_forTokenIds[i]] = address(0);
+
+            nounsToken.transferFrom(msg.sender, vault, _fromTokenIds[i]);
+            nouns[_fromTokenIds[i]] = vault;
+        }
 
         emit Swap(msg.sender, _fromTokenIds, _forTokenIds);
-    }
-
-    /**
-     * @notice Transfer multiple Nouns
-     * @param _from The address to transfer from
-     * @param _to The address to transfer to
-     * @param _tokenIds An array of tokenIds to be transferred
-     */
-    function batchTransfer(
-        address _from,
-        address _to,
-        uint256[] calldata _tokenIds
-    ) internal {
-        for (uint256 i = 0; i < _tokenIds.length; i++) {
-            nounsToken.safeTransferFrom(_from, _to, _tokenIds[i]);
-        }
     }
 
     /**
@@ -143,7 +157,7 @@ contract Pixel is ERC20, Ownable {
                 )
             );
 
-            vaults.push(address(vault));
+            openVaults.push(address(vault));
         }
     }
 

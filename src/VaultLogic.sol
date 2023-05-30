@@ -21,26 +21,40 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@nouns-contracts/contracts/governance/NounsDAOProxy.sol";
+import "@nouns-contracts/contracts/governance/NounsDAOLogicV2.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import "@nouns-contracts/contracts/NounsToken.sol";
+import "./Pixel.sol";
 
 contract VaultLogic is IERC721Receiver, Initializable {
-    // NounsDAOProxy public nounsDAO;
+    Pixel public pixels;
+    NounsToken public nounsToken;
+    NounsDAOLogicV2 public nounsDAO;
 
-    // mapping(uint256 => Slot) public slots;
-    // Slot[] public emptySlots;
-    // Slot[] public proposers;
+    function initialize(
+        address _pixel,
+        address _nounsToken,
+        address payable _nounsDAO
+    ) public initializer {
+        pixels = Pixel(_pixel);
 
-    function initialize(address _nounsDAO) public initializer {
-        // nounsDAO = NounsDAOProxy(_nounsDAO);
+        nounsToken = NounsToken(_nounsToken);
+        nounsToken.setApprovalForAll(_pixel, true);
+
+        nounsDAO = NounsDAOLogicV2(_nounsDAO);
     }
 
-    function vote() public {
-        // nounsDAO.vote();
+    function vote(uint256 _proposalId, uint8 _type) public {
+        nounsDAO.castVote(_proposalId, _type);
     }
 
-    function voteWithReason() public {}
+    function voteWithReason(
+        uint256 _proposalId,
+        uint8 _type,
+        string calldata _reason
+    ) public {
+        nounsDAO.castVoteWithReason(_proposalId, _type, _reason);
+    }
 
     /**
      * @notice Handle the receipt of an NFT
