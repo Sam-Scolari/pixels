@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: CC0-1.0
 
-/// @title CustomNouns
+/// @title Custom Nouns
 
 /**
  * ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -26,7 +26,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 contract CustomNouns is ERC721 {
     mapping(address => uint256) public stakeOf;
     mapping(uint256 => string) public imageData;
-    ERC20 public PixelToken = ERC20(address(0));
+    ERC20 public pixel = ERC20(address(0));
     uint256 public totalSupply;
 
     constructor() ERC721("Custom Nouns", "CUSTOMNOUNS") {}
@@ -54,7 +54,7 @@ contract CustomNouns is ERC721 {
             revert("Staked value must not be less than or equal to 0");
         }
 
-        PixelToken.transferFrom(msg.sender, address(this), _value);
+        pixel.transferFrom(msg.sender, address(this), _value);
     }
 
     function unstake(uint256 _tokenId, uint256 _value) public {
@@ -62,6 +62,6 @@ contract CustomNouns is ERC721 {
             revert("Value to unstake must not be greater than staked value");
         }
 
-        PixelToken.transferFrom(address(this), msg.sender, _value);
+        pixel.transferFrom(address(this), msg.sender, _value);
     }
 }
