@@ -21,19 +21,11 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@nouns-contracts/contracts/NounsToken.sol";
 
-contract Pixel is
-    Initializable,
-    ERC20Upgradeable,
-    OwnableUpgradeable,
-    UUPSUpgradeable,
-    IERC721Receiver
-{
+contract Pixel is ERC20, Ownable, IERC721Receiver {
     uint256 public constant EXCHANGE_RATE = 1_000_000e18;
 
     NounsToken public nounsToken;
@@ -48,21 +40,8 @@ contract Pixel is
         uint256[] _forTokenIds
     );
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(
-        address _nounsToken,
-        address _delegatee
-    ) public initializer {
-        __ERC20_init("Pixel", "PIXEL");
-        __Ownable_init();
-        __UUPSUpgradeable_init();
-
+    constructor(address _nounsToken) ERC20("Pixel", "PIXEL") {
         nounsToken = NounsToken(_nounsToken);
-        delegatee = _delegatee;
     }
 
     /**
@@ -150,14 +129,6 @@ contract Pixel is
     function setDelegatee(address _delegatee) external onlyOwner {
         delegatee = _delegatee;
     }
-
-    /**
-     * @notice Authorize an upgrade to the contract from only the owner
-     * @param newImplementation The new implementation
-     */
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyOwner {}
 
     /**
      * @notice Handle the receipt of an NFT
